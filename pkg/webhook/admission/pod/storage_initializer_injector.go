@@ -106,6 +106,15 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod) erro
 	podVolumes := []v1.Volume{}
 	storageInitializerMounts := []v1.VolumeMount{}
 
+	var pvcMountPath = PvcSourceMountPath
+	var skipStorageInitializer bool
+	for _, env := range userContainer.Env {
+		if strings.Compare(env.Name, "PVC_MOUNT_POINT") == 0 {
+			pvcMountPath = env.Value
+			skipStorageInitializer = true
+		}
+	}
+
 	// For PVC source URIs we need to mount the source to be able to access it
 	// See design and discussion here: https://github.com/kubeflow/kfserving/issues/148
 	if strings.HasPrefix(srcURI, PvcURIPrefix) {
@@ -128,7 +137,7 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod) erro
 		// add a corresponding PVC volume mount to the INIT container
 		pvcSourceVolumeMount := v1.VolumeMount{
 			Name:      PvcSourceMountName,
-			MountPath: PvcSourceMountPath,
+			MountPath: pvcMountPath,
 			ReadOnly:  true,
 		}
 		storageInitializerMounts = append(storageInitializerMounts, pvcSourceVolumeMount)
@@ -140,6 +149,11 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod) erro
 		srcURI = PvcSourceMountPath + "/" + pvcPath
 	}
 
+	if skipStorageInitializer {
+		// Add volumes to the PodSpec
+		pod.Spec.Volumes = append(pod.Spec.Volumes, podVolumes...)
+		return nil
+	}
 	// Create a volume that is shared between the storage-initializer and kfserving-container
 	sharedVolume := v1.Volume{
 		Name: StorageInitializerVolumeName,
